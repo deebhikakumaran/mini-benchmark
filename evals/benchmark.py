@@ -30,35 +30,59 @@ def post_comment(message):
     if response.status_code != 201:
         print(f"Failed to post comment: {response.text}")
 
-def get_ai_fix(app_code, test_code, error):
-    prompt = f"""
-    You are an expert debugger. Fix the bug causing the following error: {error}.
+def get_issue_info():
+    token = os.getenv("GITHUB_TOKEN")
+    repo = os.getenv("GITHUB_REPOSITORY")
+    number = os.getenv("ISSUE_NUMBER")
+
+    if not all([token, repo, number]):
+        print("No issue info available.")
+        return
     
-    APP CODE (app/app.js):
-    {app_code}
+    url = f"https://api.github.com/repos/{repo}/issues/{number}"
+    headers = {"Authorization": f"token {token}"}
+    response = requests.get(url, headers=headers).json()
+
+    title = response.get('title', '')
+    description = response.get('body', '')
+    return f"TITLE: {title}\nDESCRIPTION: {description}"
+
+def get_ai_fix(app_code, test_code, error, issue_info):
+    # Diagnosis Phase
+    diagnosis_prompt = f"""
+    Analyze this bug and write a 3-sentence summary of the root cause.
+    ISSUE: {issue_info}
+    TEST ERROR: {error}
+    """
+    diagnosis = client_ai.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": diagnosis_prompt}]
+    ).choices[0].message.content
+
+    # Solution Phase
+    solution_prompt = f"""
+    DIAGNOSIS: {diagnosis}
     
-    TEST CODE (tests/todo.test.js):
-    {test_code}
+    APP CODE: {app_code}
+    TEST CODE: {test_code}
     
-    CRITICAL INSTRUCTIONS:
-    1. The error 'TypeError: app.address is not a function' often occurs in Supertest. 
-    2. Do NOT add 'app.listen()' to app.js.
-    3. If app.js exports are correct, modify the test file to wrap the app using 'http.createServer(app)'.
-    4. You may suggest changes to multiple files. For EACH file you change, use this exact format:
-    
+    Based on the diagnosis, provide the file patches. 
+    Use this format for EACH file:
     FILE: <file_path>
     CODE:
     <full_file_content_here>
     END_FILE
-    
-    Only provide code using the format above. Do not include extra conversational text.
     """
-    
     response = client_ai.chat.completions.create(
         model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[
+            {"role": "user", "content": diagnosis_prompt},
+            {"role": "assistant", "content": diagnosis},
+            {"role": "user", "content": solution_prompt}
+        ]
     )
     content = response.choices[0].message.content
+
     return content.replace("```javascript", "").replace("```", "").strip()  # type: ignore
 
 def run_agent_benchmark():
@@ -77,20 +101,23 @@ def run_agent_benchmark():
         if test_result.exit_code == 0:
             print("Already fixed.")
             return
+        
+        # Get issue information
+        issue_info = get_issue_info()
 
         # Agent thinks and gets a fix
         print("Agent is fixing the bug.")
-        fixed_output = get_ai_fix(app_code, test_code, test_result.output.decode())
+        fixed_output = get_ai_fix(app_code, test_code, test_result.output.decode(), issue_info)
 
         # Parse all file blocks
-        pattern = r"FILE: ([\w\/\.]+)\nCODE:\n([\s\S]*?)\nEND_FILE"
+        pattern = r"FILE:\s*(?P<path>[\w\/\.]+)\s*CODE:\s*(?P<code>[\s\S]*?)\s*END_FILE"
         matches = re.finditer(pattern, fixed_output)
 
         ai_final_code = []
 
         for match in matches:
-            file_path = match.group(1)
-            code_content = match.group(2).replace("```javascript", "").replace("```", "").strip()
+            file_path = match.group('path')
+            code_content = match.group('code').replace("```javascript", "").replace("```", "").strip()
             
             # Escape and write each file
             escaped_code = code_content.replace('"', '\\"')
