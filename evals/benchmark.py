@@ -67,10 +67,18 @@ def run_agent_benchmark():
         final_test = container.exec_run("npx jest")
         if final_test.exit_code == 0:
             print("Result: AI FIXED")
-            post_comment("AI FIXED")
+            post_comment(f"""AI has proposed a fix. Tests passed. Please review proposed changes below:
+                         
+                        ```javascript
+                        {fixed_code}
+                        """)
         else:
             print("Result: AI FAILED")
-            post_comment("AI FAILED")
+            post_comment(f"""AI failed to fix the bug. Tests are still failing after AI's attempt.
+                         
+                        Jest output:
+                        {final_test.output.decode()[-1000:]}
+                        """)
             
     except Exception as e:
         print(f"Error: {e}")
