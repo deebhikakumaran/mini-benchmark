@@ -19,8 +19,17 @@ def post_comment(message):
         return
 
     url = f"https://api.github.com/repos/{repo}/issues/{number}/comments"
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-    requests.post(url, json={"body": message}, headers=headers)
+    headers = {
+        "Authorization": f"token {token}", 
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    response = requests.post(url, json={"body": message}, headers=headers)
+    
+    if response.status_code == 201:
+        print(f"Successfully posted comment to {url}")
+    else:
+        print(f"Failed to post comment. Status Code: {response.status_code}, Response Body: {response.text}")
 
 def get_ai_fix(code, error):
     prompt = f"Fix this code that causes the following test error:\n\nCODE:\n{code}\n\nERROR:\n{error}\n\nReturn ONLY the corrected code."
