@@ -32,7 +32,7 @@ def post_comment(message):
 
 def get_ai_fix(app_code, test_code, error):
     prompt = f"""
-    You are an expert debugger. I am providing you with the application code and the test file.
+    You are an expert debugger. Fix the bug causing the following error: {error}.
     
     APP CODE (app/app.js):
     {app_code}
@@ -40,19 +40,18 @@ def get_ai_fix(app_code, test_code, error):
     TEST CODE (tests/todo.test.js):
     {test_code}
     
-    ERROR:
-    {error}
-    
     CRITICAL INSTRUCTIONS:
-    1. The error 'TypeError: app.address is not a function' happens because Supertest needs a proper server instance or correctly exported app.
+    1. The error 'TypeError: app.address is not a function' often occurs in Supertest. 
     2. Do NOT add 'app.listen()' to app.js.
-    3. If app.js is correctly exporting the app, modify the test file to wrap the app using 'http.createServer(app)'.
-    4. Provide the fixed file content for the file you modified.
+    3. If app.js exports are correct, modify the test file to wrap the app using 'http.createServer(app)'.
+    4. You may suggest changes to multiple files. For EACH file you change, use this exact format:
     
-    Return the result in this JSON-like format:
-    FILE: <filename>
+    FILE: <file_path>
     CODE:
-    <corrected code>
+    <full_file_content_here>
+    END_FILE
+    
+    Only provide code using the format above. Do not include extra conversational text.
     """
     
     response = client_ai.chat.completions.create(
@@ -83,15 +82,18 @@ def run_agent_benchmark():
         print("Agent is fixing the bug.")
         fixed_output = get_ai_fix(app_code, test_code, test_result.output.decode())
 
-        # Parse output for file path and code
-        match = re.search(r"FILE: ([\w\/\.]+)\n([\s\S]*)", fixed_output)
-        if match:
+        # Parse all file blocks
+        pattern = r"FILE: ([\w\/\.]+)\nCODE:\n([\s\S]*?)\nEND_FILE"
+        matches = re.finditer(pattern, fixed_output)
+
+        for match in matches:
             file_path = match.group(1)
             code_content = match.group(2).replace("```javascript", "").replace("```", "").strip()
             
-            # Escape and agent writes back to container
+            # Escape and write each file
             escaped_code = code_content.replace('"', '\\"')
             container.exec_run(f"sh -c 'echo \"{escaped_code}\" > {file_path}'")
+            print(f"Updated {file_path}")
         
         # Verify
         final_test = container.exec_run("npx jest")
@@ -112,6 +114,11 @@ def run_agent_benchmark():
                             Jest output:
                             ```
                             {log}
+                            ```
+
+                            Failed AI code:
+                            ```javascript
+                            {code_content}
                             ```""")
             
     except Exception as e:
