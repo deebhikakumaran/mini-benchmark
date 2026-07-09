@@ -86,6 +86,8 @@ def run_agent_benchmark():
         pattern = r"FILE: ([\w\/\.]+)\nCODE:\n([\s\S]*?)\nEND_FILE"
         matches = re.finditer(pattern, fixed_output)
 
+        ai_final_code = []
+
         for match in matches:
             file_path = match.group(1)
             code_content = match.group(2).replace("```javascript", "").replace("```", "").strip()
@@ -93,18 +95,21 @@ def run_agent_benchmark():
             # Escape and write each file
             escaped_code = code_content.replace('"', '\\"')
             container.exec_run(f"sh -c 'echo \"{escaped_code}\" > {file_path}'")
+
+            ai_final_code.append({"file": file_path, "code": code_content})
             print(f"Updated {file_path}")
-        
+
+        report = "### AI proposed the following changes:\n"
+        for entry in ai_final_code:
+            report += f"\n#### File: `{entry['file']}`\n```javascript\n{entry['code']}\n```\n"
+                
         # Verify
         final_test = container.exec_run("npx jest")
         if final_test.exit_code == 0:
             print("Result: AI FIXED")
             post_comment(f"""AI has proposed a fix. Tests passed. 
-                            Please review proposed changes to {file_path} below:
-                                                    
-                            ```javascript
-                            {code_content}
-                            ```""")
+                            {report}
+                          """)
         else:
             print("Result: AI FAILED")
             log = final_test.output.decode()[-1000:] 
@@ -116,10 +121,8 @@ def run_agent_benchmark():
                             {log}
                             ```
 
-                            Failed AI code:
-                            ```javascript
-                            {code_content}
-                            ```""")
+                            {report}
+                            """)
             
     except Exception as e:
         post_comment(f"Benchmark Error: {str(e)}")
