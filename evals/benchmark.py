@@ -34,7 +34,8 @@ def run_agent_benchmark():
     container = None
     try:
         # Start container
-        container = client_docker.containers.run("mini-benchmark:latest", detach=True, tty=True)
+        container = client_docker.containers.run("mini-benchmark:latest", detach=True, tty=True, 
+                                                entrypoint="/bin/sh -c 'sleep infinity'")
         
         # Get the current buggy code
         code = container.exec_run("cat app/app.js").output.decode()
