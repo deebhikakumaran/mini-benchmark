@@ -1,8 +1,10 @@
 const request = require('supertest');
-const { app, server } = require('../app/app');
+const http = require('http');
+const app = require('../app/app');
 
 describe('POST /add', () => {
     test('should add a valid todo', async () => {
+        const server = http.createServer(app);
         const response = await request(server)
             .post('/add')
             .send({ item: 'hello' });
@@ -11,6 +13,7 @@ describe('POST /add', () => {
     });
 
     test('should add a short todo item', async () => {
+        const server = http.createServer(app);
         const response = await request(server)
             .post('/add')
             .send({ item: 'hi' });

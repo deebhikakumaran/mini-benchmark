@@ -1,5 +1,4 @@
 const express = require('express');
-const http = require('http');
 const app = express();
 app.use(express.json());
 
@@ -15,7 +14,5 @@ app.post('/add', (req, res) => {
     }
 });
 
-const server = http.createServer(app);
-
-module.exports = { app, server };
+module.exports = app;
  
