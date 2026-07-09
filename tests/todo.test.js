@@ -1,6 +1,9 @@
 const request = require('supertest');
 const app = require('../app/app');
 
+console.log('DEBUG TYPE:', typeof app);
+console.log('DEBUG KEYS:', Object.keys(app));
+
 describe('POST /add', () => {
     test('should add a valid todo', async () => {
         const response = await request(app)

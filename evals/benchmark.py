@@ -1,5 +1,6 @@
 import docker
 import os
+import re
 import requests
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -25,19 +26,41 @@ def post_comment(message):
     }
     
     response = requests.post(url, json={"body": message}, headers=headers)
-    
-    if response.status_code == 201:
-        print(f"Successfully posted comment to {url}")
-    else:
-        print(f"Failed to post comment. Status Code: {response.status_code}, Response Body: {response.text}")
 
-def get_ai_fix(code, error):
-    prompt = f"Fix this code that causes the following test error:\n\nCODE:\n{code}\n\nERROR:\n{error}\n\nReturn ONLY the corrected code."
+    if response.status_code != 201:
+        print(f"Failed to post comment: {response.text}")
+
+def get_ai_fix(app_code, test_code, error):
+    prompt = f"""
+    You are an expert debugger. I am providing you with the application code and the test file.
+    
+    APP CODE (app/app.js):
+    {app_code}
+    
+    TEST CODE (tests/todo.test.js):
+    {test_code}
+    
+    ERROR:
+    {error}
+    
+    CRITICAL INSTRUCTIONS:
+    1. The error 'TypeError: app.address is not a function' happens because Supertest needs a proper server instance or correctly exported app.
+    2. Do NOT add 'app.listen()' to app.js.
+    3. If app.js is correctly exporting the app, modify the test file to wrap the app using 'http.createServer(app)'.
+    4. Provide the fixed file content for the file you modified.
+    
+    Return the result in this JSON-like format:
+    FILE: <filename>
+    CODE:
+    <corrected code>
+    """
+    
     response = client_ai.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}]
     )
-    return response.choices[0].message.content
+    content = response.choices[0].message.content
+    return content.replace("```javascript", "").replace("```", "").strip()  # type: ignore
 
 def run_agent_benchmark():
     container = None
@@ -47,7 +70,8 @@ def run_agent_benchmark():
                                                 entrypoint="/bin/sh -c 'sleep infinity'")
         
         # Get the current buggy code
-        code = container.exec_run("cat app/app.js").output.decode()
+        app_code = container.exec_run("cat app/app.js").output.decode()
+        test_code = container.exec_run("cat tests/todo.test.js").output.decode()
         
         # Run tests and capture failure
         test_result = container.exec_run("npx jest")
@@ -57,31 +81,41 @@ def run_agent_benchmark():
 
         # Agent thinks and gets a fix
         print("Agent is fixing the bug.")
-        fixed_code = get_ai_fix(code, test_result.output.decode())
-        
-        # Agent write file back to container 
-        escaped_code = fixed_code.replace('"', '\\"') # type: ignore
-        container.exec_run(f"sh -c 'echo \"{escaped_code}\" > app/app.js'")
+        fixed_output = get_ai_fix(app_code, test_code, test_result.output.decode())
+
+        # Parse output for file path and code
+        match = re.search(r"FILE: ([\w\/\.]+)\n([\s\S]*)", fixed_output)
+        if match:
+            file_path = match.group(1)
+            code_content = match.group(2).replace("```javascript", "").replace("```", "").strip()
+            
+            # Escape and agent writes back to container
+            escaped_code = code_content.replace('"', '\\"')
+            container.exec_run(f"sh -c 'echo \"{escaped_code}\" > {file_path}'")
         
         # Verify
         final_test = container.exec_run("npx jest")
         if final_test.exit_code == 0:
             print("Result: AI FIXED")
-            post_comment(f"""AI has proposed a fix. Tests passed. Please review proposed changes below:
-                         
-                        ```javascript
-                        {fixed_code}
-                        """)
+            post_comment(f"""AI has proposed a fix. Tests passed. 
+                            Please review proposed changes to {file_path} below:
+                                                    
+                            ```javascript
+                            {code_content}
+                            ```""")
         else:
             print("Result: AI FAILED")
-            post_comment(f"""AI failed to fix the bug. Tests are still failing after AI's attempt.
-                         
-                        Jest output:
-                        {final_test.output.decode()[-1000:]}
-                        """)
+            log = final_test.output.decode()[-1000:] 
+            post_comment(f"""AI failed to fix the bug. 
+                            Tests are still failing after AI's attempt.
+
+                            Jest output:
+                            ```
+                            {log}
+                            ```""")
             
     except Exception as e:
-        print(f"Error: {e}")
+        post_comment(f"Benchmark Error: {str(e)}")
     finally:
         if container:
             container.stop()

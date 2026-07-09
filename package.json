@@ -2,7 +2,7 @@
   "name": "mini-benchmark",
   "version": "1.0.0",
   "description": "",
-  "main": "app.js",
+  "main": "app/server.js",
   "scripts": {
     "test": "jest"
   },
