@@ -54,11 +54,17 @@ def get_ai_fix(app_code, test_code, error, issue_info):
     ISSUE: {issue_info}
     TEST ERROR: {error}
     """
-    diagnosis = client_ai.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": diagnosis_prompt}]
-    ).choices[0].message.content
 
+    response = client_ai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a code patching machine. Output ONLY structured file blocks. No conversational text."},
+            {"role": "user", "content": diagnosis_prompt},
+        ]
+    )
+    
+    diagnosis = response.choices[0].message.content
+    
     # Solution Phase
     solution_prompt = f"""
     DIAGNOSIS: {diagnosis}
@@ -66,24 +72,28 @@ def get_ai_fix(app_code, test_code, error, issue_info):
     APP CODE: {app_code}
     TEST CODE: {test_code}
     
-    Based on the diagnosis, provide the file patches. 
-    Use this format for EACH file:
+    CRITICAL FORMATTING RULES (FAILURE TO FOLLOW WILL BREAK THE SYSTEM):
+    1. Output ONLY the file blocks in the format below.
+    2. Do NOT include ANY introductory text, greetings, or explanations.
+    3. Use this exact format for EACH file:
     FILE: <file_path>
     CODE:
     <full_file_content_here>
     END_FILE
     """
+    
     response = client_ai.chat.completions.create(
         model="gpt-4o",
         messages=[
+            {"role": "system", "content": "You are a code patching machine. Output ONLY structured file blocks. No conversational text."},
             {"role": "user", "content": diagnosis_prompt},
             {"role": "assistant", "content": diagnosis},
             {"role": "user", "content": solution_prompt}
         ]
     )
+    
     content = response.choices[0].message.content
-
-    return content.replace("```javascript", "").replace("```", "").strip()  # type: ignore
+    return content.replace("```javascript", "").replace("```", "").strip() # type: ignore
 
 def run_agent_benchmark():
     container = None
@@ -109,6 +119,9 @@ def run_agent_benchmark():
         print("Agent is fixing the bug.")
         fixed_output = get_ai_fix(app_code, test_code, test_result.output.decode(), issue_info)
         print(f"DEBUG: Searching for patterns in output: {fixed_output[:100]}...")
+
+        if "FILE:" in fixed_output:
+            fixed_output = fixed_output[fixed_output.find("FILE:"):]
 
         # Parse all file blocks
         pattern = r"FILE:\s*(?P<path>[\w\/\.]+)(?:\s*CODE:)?\s*(?P<code>[\s\S]*?)(?:END_FILE|$)"
