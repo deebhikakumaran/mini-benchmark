@@ -108,10 +108,16 @@ def run_agent_benchmark():
         # Agent thinks and gets a fix
         print("Agent is fixing the bug.")
         fixed_output = get_ai_fix(app_code, test_code, test_result.output.decode(), issue_info)
+        print(f"DEBUG: Searching for patterns in output: {fixed_output[:100]}...")
 
         # Parse all file blocks
-        pattern = r"FILE:\s*(?P<path>[\w\/\.]+)\s*CODE:\s*(?P<code>[\s\S]*?)\s*END_FILE"
-        matches = re.finditer(pattern, fixed_output)
+        pattern = r"FILE:\s*(?P<path>[\w\/\.]+)(?:\s*CODE:)?\s*(?P<code>[\s\S]*?)(?:END_FILE|$)"
+        matches = list(re.finditer(pattern, fixed_output, re.IGNORECASE))
+
+        if len(matches) == 0:
+            print("Regex failed to match. AI did not follow format.")
+        else:
+            print(f"DEBUG: Found {len(matches)} matches.")
 
         ai_final_code = []
 
