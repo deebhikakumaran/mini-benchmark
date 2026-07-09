@@ -1,5 +1,5 @@
 const request = require('supertest');
-const { server } = require('../app/app');
+const { app, server } = require('../app/app');
 
 describe('POST /add', () => {
     test('should add a valid todo', async () => {
