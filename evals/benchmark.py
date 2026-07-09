@@ -1,3 +1,4 @@
+import base64
 import docker
 import os
 import re
@@ -93,7 +94,8 @@ def get_ai_fix(app_code, test_code, error, issue_info):
     )
     
     content = response.choices[0].message.content
-    return content.replace("```javascript", "").replace("```", "").strip() # type: ignore
+    content = re.sub(r"```[a-zA-Z]*\n?", "", content).replace("```", "").strip() # type: ignore
+    return content
 
 def run_agent_benchmark():
     container = None
@@ -135,12 +137,26 @@ def run_agent_benchmark():
         ai_final_code = []
 
         for match in matches:
+
+            # Updated patch logic
             file_path = match.group('path')
             code_content = match.group('code').replace("```javascript", "").replace("```", "").strip()
-            
-            # Escape and write each file
-            escaped_code = code_content.replace('"', '\\"')
-            container.exec_run(f"sh -c 'echo \"{escaped_code}\" > {file_path}'")
+
+            encoded = base64.b64encode(code_content.encode()).decode()
+            dir_path = os.path.dirname(file_path)
+ 
+            if dir_path:
+                mkdir_result = container.exec_run(["sh", "-c", f"mkdir -p {dir_path}"])
+                if mkdir_result.exit_code != 0:
+                    print(f"Failed to create directory {dir_path}: {mkdir_result.output.decode()}")
+ 
+            write_result = container.exec_run(
+                ["sh", "-c", f"echo {encoded} | base64 -d > {file_path}"]
+            )
+ 
+            if write_result.exit_code != 0:
+                print(f"Failed to write {file_path}: {write_result.output.decode()}")
+                continue
 
             ai_final_code.append({"file": file_path, "code": code_content})
             print(f"Updated {file_path}")
