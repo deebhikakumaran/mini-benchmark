@@ -61,7 +61,8 @@ my class covered swe-bench architecture this week and instead of just nodding al
 
 turns out the eval loop isn't magic. it's a sandbox, a judge (the tests), and something willing to take a swing at the fix. everything else is scaffolding.
 
-## notes / rough edges
+## notes 
 
+- file writes go through base64 encode/decode into the container instead of raw shell echo — avoids quote/backtick/`$` issues from arbitrary source code breaking the write.
 - the regex parser for `FILE:` / `END_FILE` blocks is doing a lot of trust-the-model work. if the llm doesn't follow format, the patch silently doesn't apply.
 - one bug, one issue, one container lifecycle at a time — no batching yet.
